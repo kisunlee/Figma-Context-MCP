@@ -67,13 +67,17 @@ export async function downloadFigmaImage(
             }
             writer.write(value);
           }
-          resolve(fullPath);
         } catch (err) {
           writer.end();
           fs.unlink(fullPath, () => {});
           reject(err);
         }
       };
+
+      // Resolve only when the stream is fully written
+      writer.on('finish', () => {
+        resolve(fullPath);
+      });
 
       writer.on("error", (err) => {
         reader.cancel();
@@ -311,4 +315,17 @@ export function parsePaint(raw: Paint): SimplifiedFill {
  */
 export function isVisible(element: { visible?: boolean }): boolean {
   return element.visible ?? true;
+}
+
+/**
+ * Rounds a number to two decimal places, suitable for pixel value processing.
+ * @param num The number to be rounded.
+ * @returns The rounded number with two decimal places.
+ * @throws TypeError If the input is not a valid number
+ */
+export function pixelRound(num: number): number {
+  if (isNaN(num)) {
+    throw new TypeError(`Input must be a valid number`);
+  }
+  return Number(Number(num).toFixed(2));
 }

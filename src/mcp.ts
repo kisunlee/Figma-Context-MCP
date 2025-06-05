@@ -1,22 +1,22 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { FigmaService } from "./services/figma.js";
+import { FigmaService, type FigmaAuthOptions } from "./services/figma.js";
 import type { SimplifiedDesign } from "./services/simplify-node-response.js";
 import yaml from "js-yaml";
 import { Logger } from "./utils/logger.js";
 
 const serverInfo = {
   name: "Figma MCP Server",
-  version: "0.2.1",
+  version: process.env.NPM_PACKAGE_VERSION ?? "unknown",
 };
 
-const serverOptions = {
-  capabilities: { logging: {}, tools: {} },
-};
-
-function createServer(figmaApiKey: string, { isHTTP = false }: { isHTTP?: boolean } = {}) {
+function createServer(
+  authOptions: FigmaAuthOptions,
+  { isHTTP = false }: { isHTTP?: boolean } = {},
+) {
   const server = new McpServer(serverInfo);
-  const figmaService = new FigmaService(figmaApiKey);
+  // const figmaService = new FigmaService(figmaApiKey);
+  const figmaService = new FigmaService(authOptions);
   registerTools(server, figmaService);
 
   Logger.isHTTP = isHTTP;
@@ -45,7 +45,7 @@ function registerTools(server: McpServer, figmaService: FigmaService): void {
         .number()
         .optional()
         .describe(
-          "How many levels deep to traverse the node tree, only use if explicitly requested by the user",
+          "OPTIONAL. Do NOT use unless explicitly requested by the user. Controls how many levels deep to traverse the node tree,",
         ),
     },
     async ({ fileKey, nodeId, depth }) => {
@@ -112,13 +112,42 @@ function registerTools(server: McpServer, figmaService: FigmaService): void {
         })
         .array()
         .describe("The nodes to fetch as images"),
+      pngScale: z
+        .number()
+        .positive()
+        .optional()
+        .default(2)
+        .describe(
+          "Export scale for PNG images. Optional, defaults to 2 if not specified. Affects PNG images only.",
+        ),
       localPath: z
         .string()
         .describe(
           "The absolute path to the directory where images are stored in the project. If the directory does not exist, it will be created. The format of this path should respect the directory format of the operating system you are running on. Don't use any special character escaping in the path name either.",
         ),
+      svgOptions: z
+        .object({
+          outlineText: z
+            .boolean()
+            .optional()
+            .default(true)
+            .describe("Whether to outline text in SVG exports. Default is true."),
+          includeId: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe("Whether to include IDs in SVG exports. Default is false."),
+          simplifyStroke: z
+            .boolean()
+            .optional()
+            .default(true)
+            .describe("Whether to simplify strokes in SVG exports. Default is true."),
+        })
+        .optional()
+        .default({})
+        .describe("Options for SVG export"),
     },
-    async ({ fileKey, nodes, localPath }) => {
+    async ({ fileKey, nodes, localPath, svgOptions, pngScale }) => {
       try {
         const imageFills = nodes.filter(({ imageRef }) => !!imageRef) as {
           nodeId: string;
@@ -134,7 +163,13 @@ function registerTools(server: McpServer, figmaService: FigmaService): void {
             fileType: fileName.endsWith(".svg") ? ("svg" as const) : ("png" as const),
           }));
 
-        const renderDownloads = figmaService.getImages(fileKey, renderRequests, localPath);
+        const renderDownloads = figmaService.getImages(
+          fileKey,
+          renderRequests,
+          localPath,
+          pngScale,
+          svgOptions,
+        );
 
         const downloads = await Promise.all([fillDownloads, renderDownloads]).then(([f, r]) => [
           ...f,
